@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 import twython
 import json, os, time
 from tweetf0rm.exceptions import NotImplemented, MissingArgs, WrongArgs
+from tweetf0rm.utils import get_tweet_fetched_value
 
 MAX_RETRY_CNT = 5
 class User(twython.Twython):
@@ -298,9 +299,15 @@ class User(twython.Twython):
 		if (tweet != None):
 			for handler in write_to_handlers:
 				handler.append(json.dumps(tweet), bucket=bucket, key="tweetList")
+
+			for handler in cmd_handlers:
+				handler.append(json.dumps({"id":tweet_id, "status":get_tweet_fetched_value()}), bucket=bucket, key="tweetList")
 		else:
 			for handler in write_to_handlers:
 				handler.append(json.dumps({"id":tweet_id}), bucket=bucket, key="tweetList")
+
+			for handler in cmd_handlers:
+				handler.append(json.dumps({"id":tweet_id, "status":get_tweet_fetched_value()}), bucket=bucket, key="tweetList")
 
 		logger.debug("[%s] tweet fetched..." % tweet_id)
 

@@ -72,7 +72,10 @@ class RedisQueue(RedisBase):
 				item = self.conn().rpop(self.key)
 
 		if item:
-			item = json.loads(item[1])
+			if ( type(item) == tuple ):
+				item = json.loads(item[1])
+			else:
+				item = json.loads(item)
 		return item
 
 	def get_nowait(self):

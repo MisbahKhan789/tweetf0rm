@@ -9,6 +9,7 @@ from .crawler_process import CrawlerProcess
 from tweetf0rm.twitterapi.users import User
 from tweetf0rm.handler import create_handler
 from tweetf0rm.handler.crawl_user_relationship_command_handler import CrawlUserRelationshipCommandHandler
+from tweetf0rm.handler.db_status_handler import DbStatusHandler
 from tweetf0rm.utils import full_stack, hash_cmd
 from tweetf0rm.exceptions import MissingArgs, NotImplemented
 from tweetf0rm.redis_helper import NodeQueue
@@ -118,8 +119,13 @@ class UserRelationshipCrawler(CrawlerProcess):
 					args["bucket"] = bucket
 				
 				func = None
-				if  (command in ['CRAWL_USER_TIMELINE', 'CRAWL_TWEET']):
+				if  (command in ['CRAWL_USER_TIMELINE']):
 					func = getattr(self.user_api, self.tasks[command])
+				elif (command in ['CRAWL_TWEET']):
+
+					args["cmd_handlers"].append(DbStatusHandler(redis_config=self.redis_config))
+					func = getattr(self.user_api, self.tasks[command])
+
 				elif (command in ['CRAWL_FRIENDS', 'CRAWL_FOLLOWERS']):
 					data_type = cmd['data_type']
 					

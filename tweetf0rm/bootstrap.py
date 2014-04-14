@@ -13,10 +13,11 @@ sys.path.append(".")
 
 import multiprocessing as mp
 from tweetf0rm.exceptions import InvalidConfig
-from tweetf0rm.redis_helper import NodeQueue, NodeCoordinator
-from tweetf0rm.utils import full_stack, node_id, public_ip
+from tweetf0rm.redis_helper import NodeQueue, NodeCoordinator, RedisQueue
+from tweetf0rm.utils import full_stack, node_id, public_ip, get_status_queue_name
 from tweetf0rm.proxies import proxy_checker
 from tweetf0rm.scheduler import Scheduler
+from tweetf0rm.sqlite import connect_to_db, id_exists, update_id_status, insert_id_status
 import time, os, tarfile, futures
 
 def check_config(config):
@@ -71,8 +72,35 @@ def tarball_results(data_folder, bucket, output_tarball_foldler, timestamp):
 
 	return False, gz_file
 
+def check_status_db(status_queue, db):
 
-def start_server(config, proxies):
+	tweet_obj_arr = []
+
+	while ( status_queue.empty() == False ):
+
+		tweet_id_obj = status_queue.get(block=False)
+
+		if ( tweet_id_obj != None ):
+			# Push status to db
+			tweet_obj_arr.append(tweet_id_obj)
+	
+	if ( len(tweet_obj_arr) > 0 ):		
+		update_status_db(tweet_obj_arr, db)
+
+def update_status_db(tweetObjArr, db):
+
+	for tweetObj in tweetObjArr:
+		tweetId = tweetObj['id']
+
+		cursor = db.cursor()
+		if ( id_exists(tweetId, cursor) == True ):
+			update_id_status(tweetId, tweetObj['status'], cursor)
+		else:
+			insert_id_status(tweetId, tweetObj['status'], cursor)
+		db.commit()
+
+
+def start_server(config, proxies, db):
 	import copy
 	
 	check_config(config)
@@ -103,6 +131,10 @@ def start_server(config, proxies):
 	node_queue = NodeQueue(this_node_id, redis_config=config['redis_config'])
 	node_queue.clear()
 
+	# This queue will hold state info we want to transfer to the state database
+	status_queue = RedisQueue(name=get_status_queue_name(), queue_type='fifo', redis_config=config['redis_config'])
+	status_queue.clear()
+
 	scheduler = Scheduler(this_node_id, config=config, proxies=proxies)
 
 	logger.info('starting node_id: %s'%this_node_id)
@@ -114,6 +146,7 @@ def start_server(config, proxies):
 	#but we need one to report the status of each crawler and perform the tarball tashs...
 	
 	last_archive_ts = time.time() + 3600 # the first archive event starts 2 hrs later... 
+	last_status_ts = time.time() + 5 # Every n seconds, update the status database
 	pre_time = time.time()
 	last_load_balancing_task_ts = time.time()
 	while True:
@@ -137,6 +170,13 @@ def start_server(config, proxies):
 
 			last_archive_ts = time.time()
 
+		if ( time.time() - last_status_ts > 0 ):
+			# update status database
+			logger.info("Checking status queue...")
+			check_status_db(status_queue, db)
+
+			last_status_ts = time.time()
+
 		# block, the main process...for a command
 		if(not scheduler.is_alive()):
 			logger.info("no crawler is alive... waiting to recreate all crawlers...")
@@ -148,7 +188,7 @@ def start_server(config, proxies):
 			cmd = {'cmd': 'BALANCING_LOAD'}
 			scheduler.enqueue(cmd)
 
-		cmd = node_queue.get(block=True, timeout=360)
+		cmd = node_queue.get(block=True, timeout=30)
 
 		if cmd:
 			scheduler.enqueue(cmd)
@@ -168,9 +208,13 @@ if __name__=="__main__":
 
 	with open(os.path.abspath(args.config), 'rb') as config_f:
 		config = json.load(config_f)	
+
+		if ( config['db_path'] == None ):
+			raise MissingArgs("you need a database path to write the state to...")
 		
 		try:
-			start_server(config, proxies)
+			db = connect_to_db(config['db_path'])
+			start_server(config, proxies, db)
 		except KeyboardInterrupt:
 			print()
 			logger.error('You pressed Ctrl+C!')

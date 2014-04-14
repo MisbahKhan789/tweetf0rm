@@ -46,3 +46,15 @@ def hash_cmd(cmd):
 def node_id():
 	ip = public_ip()
 	return md5(ip)
+
+def get_status_queue_name():
+	return "global_status_queue"
+
+def get_tweet_unknown_value():
+	return 0
+
+def get_tweet_fetched_value():
+	return 1
+
+def get_tweet_fetching_value():
+	return 2

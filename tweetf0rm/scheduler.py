@@ -26,7 +26,7 @@ class Scheduler(object):
 	def __init__(self, node_id, config={}, proxies=[]):
 		self.node_id = node_id
 		self.config = config
-		if (len(proxies) > 0):
+		if (proxies != None and len(proxies) > 0):
 			
 			self.proxy_list = proxy_checker(proxies)
 

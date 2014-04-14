@@ -12,7 +12,8 @@ requests_log.setLevel(logging.WARNING)
 import sys, time, argparse, random, copy, pprint
 sys.path.append(".")
 from tweetf0rm.redis_helper import NodeQueue, NodeCoordinator
-from tweetf0rm.utils import node_id, public_ip, hash_cmd
+from tweetf0rm.utils import node_id, public_ip, hash_cmd, get_tweet_fetching_value
+from tweetf0rm.sqlite import connect_to_db, id_exists, update_id_status, insert_id_status, get_id_status
 from tweetf0rm.exceptions import NotImplemented
 
 pp = pprint.PrettyPrinter(indent=4)
@@ -136,10 +137,28 @@ def new_cmd(command, args_dict):
 
 	return cmd
 
+def check_and_enqueue(cmd, node_queue, db):
+
+	if ( cmd['cmd'] in ['CRAWL_TWEET'] ):
+		tweet_id = cmd['tweet_id']
+
+		cursor = db.cursor()
+		if ( get_id_status(tweet_id, cursor) > 0 ):
+			logger.info("Tweet ID [%s] already requested." % tweet_id)
+			return
+		else:
+			insert_id_status(tweet_id, get_tweet_fetching_value(), cursor)
+			db.commit()
+
+	node_queue.put(cmd)
+	logger.info('sent [%s]'%(cmd))
+
 def cmd(config, args):
 	
 	if (args.command not in avaliable_cmds):
 		raise Exception("not a valid command...")
+
+	db = connect_to_db(config['db_path'])
 
 	nid = args.node_id
 	
@@ -177,13 +196,13 @@ def cmd(config, args):
 					print "Loading Tweet ID: ", tweet_id
 					args_dict['tweet_id'] = tweet_id
 					cmd = new_cmd(new_command, args_dict)
-					node_queue.put(cmd)
+					check_and_enqueue(cmd, node_queue, db)
 			else:
 				user_ids = json.load(f)
 				for user_id in user_ids:
 					args_dict['user_id'] = user_id
 					cmd = new_cmd(new_command, args_dict)
-					node_queue.put(cmd)
+					check_and_enqueue(cmd, node_queue, db)
 	elif (args.command == 'LIST_NODES'):
 		pp.pprint(node_coordinator.list_nodes())
 	elif (args.command == 'NODE_QSIZES'):
@@ -198,8 +217,7 @@ def cmd(config, args):
 	else:
 		args_dict = copy.copy(args.__dict__)
 		cmd = new_cmd(args.command, args_dict)
-		node_queue.put(cmd)
-		logger.info('sent [%s]'%(cmd))
+		check_and_enqueue(cmd, node_queue, db)
 
 	
 
